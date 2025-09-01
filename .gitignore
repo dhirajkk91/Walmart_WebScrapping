@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.venv/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtualenv
+venv/
+ENV/
+env.bak/
+
+# Pipenv
+Pipfile.lock
+
+# pytest
+.cache
+.pytest_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Misc
+walmart_results.json
+*.log
