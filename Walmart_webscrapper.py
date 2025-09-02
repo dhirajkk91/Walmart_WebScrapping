@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 walmart_scraper.py
 
@@ -6,7 +7,8 @@ Usage:
 Then type the product name when prompted (e.g. "iphone").
 
 Notes:
-- This is a scraper intended for small-scale, occasional use and learning.
+- This is a scraper intended for small-scale, occasional use. If you need large-scale scraping,
+  consider obeying Walmart's robots.txt and using rate limiting, proxies, or an official API.
 """
 
 from bs4 import BeautifulSoup
@@ -18,7 +20,8 @@ import re
 from urllib.parse import quote_plus, urlsplit, urlunsplit
 
 HEADERS = {
-    'User-Agent': '____USER_AGENT____',  # replace with a realistic user-agent string
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0',
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Referer': 'https://www.walmart.com/',
@@ -46,6 +49,7 @@ def normalize_product_url(raw: str) -> str:
 
 def get_search_url(query: str, page: int) -> str:
     return f"https://www.walmart.com/search?query={quote_plus(query)}&page={page}"
+
 
 def get_link(query: str, page_number: int, session: requests.Session) -> list:
     """
@@ -107,26 +111,43 @@ def parse_next_data(script_text: str) -> dict:
     """
     data = json.loads(script_text)
     initial_data = data.get("props", {}).get("pageProps", {}).get("initialData", {}).get("data", {})
-    # product may be under 'product' or 'products' depending on page
-    product = initial_data.get("product") or (initial_data.get("products") and (initial_data.get("products")[0] if isinstance(initial_data.get("products"), list) else None))
+    product = initial_data.get("product") or (
+        initial_data.get("products")[0] if isinstance(initial_data.get("products"), list) else None
+    )
     reviews = initial_data.get("reviews", {}) or {}
 
     if not product:
         raise KeyError("No 'product' key in __NEXT_DATA__ initialData")
 
-    info = {
+    # Model: try multiple fields
+    model = product.get("modelNumber") or product.get("model") or "N/A"
+    if model == "N/A" and "specifications" in product:
+        for spec in product["specifications"]:
+            if spec.get("name", "").lower() == "model":
+                model = spec.get("value", "N/A")
+                break
+
+    # Features: multiple possible sources
+    features = []
+    if "keyProductFeatures" in product and product["keyProductFeatures"]:
+        features = product["keyProductFeatures"]
+    elif "bulletDescriptions" in product and product["bulletDescriptions"]:
+        features = product["bulletDescriptions"]
+    elif "shortDescription" in product and product["shortDescription"]:
+        features = [product["shortDescription"]]
+
+    return {
         "name": product.get("name"),
-        "price": (product.get("priceInfo", {}).
-                  get("currentPrice", {}).
-                  get("price")),
+        "price": (product.get("priceInfo", {})
+                        .get("currentPrice", {})
+                        .get("price")),
         "availability": product.get("availabilityStatus"),
         "brand": product.get("brand") or product.get("brandName"),
-        "model": product.get("modelNumber", "N/A"),
-        "features": product.get("keyProductFeatures", []) or product.get("bulletDescriptions", []),
-        "rating": reviews.get("customerRating", 0) or product.get("rating"),
-        "review_count": product.get("numReviews", 0) or product.get("reviewCount", 0),
+        "model": model,
+        "features": features,
+        "rating": product.get("averageRating") or reviews.get("customerRating"),
+        "review_count": product.get("numberOfReviews") or product.get("numReviews") or reviews.get("totalReviewCount"),
     }
-    return info
 
 
 def prod_info(product_url: str, session: requests.Session) -> dict:
@@ -197,8 +218,8 @@ def prod_info(product_url: str, session: requests.Session) -> dict:
                     "price": price,
                     "availability": availability,
                     "brand": brand,
-                    "model": item.get("sku", "N/A"),
-                    "features": item.get("description", ""),
+                    "model": item.get("sku") or item.get("mpn") or "N/A",
+                    "features": item.get("description", "").split(". ") if isinstance(item.get("description"), str) else item.get("description", []),
                     "rating": rating,
                     "review_count": review_count,
                 }
